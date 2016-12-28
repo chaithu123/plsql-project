@@ -1,0 +1,570 @@
+Listed below are the programs for Regional Housing Management system. Comments have been marked in Bold Format.   
+
+
+1.	Program to Search for houses from the Database using Customer’s information.
+---------------------------------------------------------------------------------------------------------------------------------
+--This program will search for Available houses based on Customer's Inquiry.       
+--Processed Tables:housing_details.
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Program Name:search_procedure
+---------------------------------------------------------------------------------------------------------------------------------
+
+create or replace procedure search_procedure(no_of_bedroom in integer,amenities_required in varchar2,no_of_persons in number,house_base in varchar2) is
+cursor c is select * from housing_details where BHK=no_of_bedroom and HOUSE_TYPE= house_base and AMENITIES=amenities_required and house_STATUS='no';
+v housing_details%rowtype;
+begin
+OPEN c; 
+LOOP 
+FETCH c INTO v; 
+EXIT WHEN c%NOTFOUND; 
+dbms_output.put_line(v.house_no||'   '||'   '||v.house_bay);                                                                                             -- Fetch the House list
+END LOOP;
+close c;
+if(v.house_no is null) then                                                                                                                              
+-- Condition to handle, If all houses are occupied or search criteria doesn’t match 
+dbms_output.put_line('No Houses available');
+end if;
+end;
+
+Calling Program: 
+declare
+amenities_wanted varchar(20);
+people_count number;
+no_of_bhk number;
+house varchar(30);
+begin
+search_procedure(&no_of_bhk,'&amenities_wanted',&people_count,'&base_type');
+end;
+
+
+
+2.	Program to create Lease and for background verification.
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to create the Lease and perform background verification for a Customer after the house has been selected
+--Processed Tables:Background_verification and Lease tables are updated
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Program Name:backgroundverification
+--------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure backgroundverification(create_lease in varchar2,houseno in number,typeofcust in varchar2, firstname in varchar2,lastname in varchar2,mobileno in number,emailid in varchar2,passport in varchar2,i20 in varchar2,driving_lisense in varchar2,State_id in varchar2)is
+v Background_verification%rowtype;
+l lease%rowtype;                                                                                                     
+-- Variable declaration
+count1 number;
+limit number;
+begin
+v.first_name:=firstname;                                                                                             
+-- Get the Inputs from the User
+v.last_name:=lastname;
+v.mobile_no:=mobileno;
+v.email_id:=emailid;
+v.house_no:=houseno;
+l.lease_no:=lease_seq.nextval;
+l.house_no:=houseno;
+select count(house_no) into count1 from Background_verification where house_no=houseno; 
+select max_persons into limit from housing_details where house_no=houseno;
+if(count1<limit) then                                                                                               
+ -- Checks Maximum limit of persons to be accommodated in House 
+if(typeofcust='international student')then                                                                           
+-- Process to create Lease for International student
+if(passport='received' and i20='received' and driving_lisense= 'not required' and state_id='not required') then
+dbms_output.put_line('verification is done');
+v.status:='yes';
+v.verification_id:=verify_seq.nextval;
+v.verification_date:=sysdate;
+insert into Background_verification values v;
+if(create_lease='yes')then
+insert into lease values l;
+end if;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+if(typeofcust='us citizen')then                                                                                      
+-- Process to create Lease for U.S.A. Citizen 
+if(passport='not required' and i20='not required' and driving_lisense= 'recieved' and state_id='received') then
+dbms_output.put_line('verification is done');
+insert into Background_verification(verification_id,verification_date, 
+status) values(verify_seq.nextval,sysdate,'yes');
+v.status:='yes';
+v.verification_id:=verify_seq.nextval;
+v.verification_date:=sysdate;
+insert into Background_verification values v;
+if(create_lease='yes')then
+insert into lease values l;
+end if;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+else
+dbms_output.put_line('max limit of lease reached,so not possible');                                                   
+-- If Maximum limit reached throw error
+end if;
+exception                                                                          
+ -- Exception Handling for Wrong House from User   
+when no_data_found then
+dbms_output.put_line('Invalid House details');
+end;
+
+       Calling Program: 
+exec backgroundverification('yes',4001,'international student', 'justin','bieber',2406431780,'jb@umbc.edu','received','received','not required','not required')
+
+3.	Program to Book BGE and calculate Total Bill
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to book Bge for a House and sum up the bill based on customer requirements
+--Processed Tables:customer_details,BGE_activation,bill_detail and house_booking are processed and updated
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:booking_bge_cust_details
+---------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure booking_bge_cust_details(houseno in number,swim_status in varchar2,gym_status in varchar2,transport_status in varchar2) is 
+leasenumber number;                                                                              
+-- Variable declaration  
+rent_amount number;
+swim_fee number;
+gym_fee number;
+shuttle_fee number;
+amenity varchar(30);
+bookid number;
+bge_fee number;
+m bill_detail%rowtype;
+k house_booking%rowtype;
+l BGE_activation%rowtype;
+h customer_details%rowtype;
+begin
+-- Get the Lease number which has been created from backgroundverification program 
+select lease_no into leasenumber from lease where house_no=houseno;                              
+k.booking_id:=booking_seq.nextval;                                                               
+-- Updating nessacary values in the tables 
+l.booking_id:=k.booking_id;
+l.BGE_id:=bge_seq.nextval;
+l.BGE_activation_date:=sysdate + interval '2' day;
+k.start_date:=sysdate + interval '2' day;
+k.end_date:=sysdate + interval '1' year;
+k.lease_no:=leasenumber;
+h.personal_id:=personal_seq.nextval;
+h.booking_id:=l.booking_id;
+h.BGE_id:=l.BGE_id;
+h.lease_no:=k.lease_no;
+h.house_no:=houseno;
+insert into house_booking values k;
+insert into BGE_activation values l;
+insert into customer_details values h;
+select booking_id into bookid from customer_details where house_no=houseno;
+update housing_details set house_status='yes',booking_id=bookid where house_no=houseno;
+select rent,amenities into rent_amount,amenity from housing_details where house_no=houseno; 
+ -- Process to sum up the Rent    
+select amount into swim_fee from Amenity_status where amenity_id=2;
+select amount into gym_fee from Amenity_status where amenity_id=1;
+select amount into shuttle_fee from Amenity_status where amenity_id=3;
+select amount into bge_fee from Amenity_status where amenity_id=4;
+rent_amount:=rent_amount+bge_fee; 
+-- Process to check the User requirement with house initial amenities and adding the matched one to the monthly bill amount 
+if(gym_status='yes' and (amenity='g' or amenity like '%g'))then                                                                         
+rent_amount:=rent_amount+gym_fee;
+end if;
+if(swim_status='yes' and (amenity='s' or amenity like 's%'))then
+rent_amount:=rent_amount+swim_fee;
+end if;
+if(transport_status='yes')then
+rent_amount:=rent_amount+shuttle_fee;
+end if;
+m.bill_id:=bill_seq.nextval;
+m.amount:=rent_amount;
+m.booking_id:=h.booking_id;
+m.start_date:=k.start_date;
+m.last_date_of_payment:=m.start_date + interval '30' day;
+insert into bill_detail values m;
+-- Exception Handling for Wrong Inputs from User
+exception                                                                      
+when no_data_found then
+dbms_output.put_line('Invalid Input details/Lease has not yet been created for house');
+when others then
+dbms_output.put_line('Check User operation');
+end;    
+      Calling Program: 
+        exec booking_bge_cust_details(4013,'yes','yes','yes');
+
+4.	Program to register Complaint from customer
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to book Customer Complaints
+--Processed Tables:customer_complaint is updated
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:customer_complaint
+---------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure customer_complaints(bookingid in number,complaint_desp in varchar2,amenity_damaged in varchar2,criticality in varchar2)is
+c customer_complaint%rowtype;
+begin
+c.complaint_id:=complaint_seq.nextval;                                                        
+-- Populating Customer Table based on Inputs received
+c.booking_id:=bookingid;
+c.complaint_desc:=complaint_desp;
+c.amenities_damage:=amenity_damaged;
+c.damage_date:=sysdate;
+-- Process to calculate the expected date for fixing the equipment  
+       if(criticality='high') then                                                                   
+c.expected_date:=sysdate+ interval '1' day;
+end if;
+if(criticality='medium') then
+c.expected_date:=sysdate+ interval '3' day;
+end if;
+if(criticality='low') then
+c.expected_date:=sysdate+ interval '7' day;
+end if;
+insert into customer_complaint values c;
+-- Exception Handling for Wrong Inputs from User
+exception
+when OTHERS then                             
+dbms_output.put_line('Invalid Booking ID ');
+end;
+
+      Calling Program: 
+        exec customer_complaints (4013,'Fan  damaged','Fan','high');
+
+5.	Program to check Monthly due and update the Database for Bill payment 
+
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to check the Due for Monthly bill payment. If the customer has paid the bill, this program can be
+--used to update the bill amount in the table 
+--Processed Tables:bill_detail updated
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Progam Name:bill_payment
+---------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure bill_payment(booking_number in number,payment in varchar2) is
+amount_tobe_paid number;
+lastdate date;
+startdate date;
+begin
+select amount into amount_tobe_paid from bill_detail where booking_id=booking_number;                                   -- process to check the Monthly Bill due 
+select last_date_of_payment into lastdate from bill_detail where booking_id=booking_number;
+select start_date into startdate from bill_detail where booking_id=booking_number;
+if(lastdate<=sysdate) then
+dbms_output.put_line('monthly rent is due for '||booking_number||'and the amount to be paid is'||amount_tobe_paid);
+if(payment='yes') then                                                                                                  
+-- If bill is paid, then update the dates in the table 
+update bill_detail set start_date=lastdate+1 where booking_id=booking_number;
+update bill_detail set last_date_of_payment=startdate+ interval '30' day where booking_id=booking_number;
+dbms_output.put_line('payment updated');
+end if;
+else
+dbms_output.put_line('still time is there for notification');
+end if;
+exception                                                                                                               
+-- Exception Handling for Wrong Inputs from User
+when no_data_found then
+dbms_output.put_line('Invalid Booking ID');
+end;
+
+      Calling Program: 
+        exec bill_payment(125,'yes');
+
+6.	Program to check Monthly due and update the Database for Bill payment
+
+--------------------------------------------------------------------------------------------------------------------------------
+--This program is used to pull the houses which missed the Monthly bill Due date and include ---a Late fees in it       
+--Processed Tables:housing_details and bill_detail.
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Program Name:bill_notifier
+--------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure bill_notifier is
+cursor c is select booking_id,amount from bill_detail where last_date_of_payment<=sysdate;                              -- Process to pull the Houses which missed the due date
+v c%rowtype;
+count1 number;
+housenumber housing_details.house_no%type;
+begin
+open c;
+loop
+fetch c into v;
+EXIT WHEN c%NOTFOUND;
+select house_no into housenumber from housing_details where booking_id=v.booking_id;
+dbms_output.put_line('the bill is due is due for :'||housenumber||' with the booking id'||v.booking_id);           
+SELECT trunc(sysdate) - TRUNC(last_date_of_payment) DAYS into count1 FROM bill_detail where booking_id=v.booking_id ;                                  
+-- Calculate the Late fees
+count1:=count1*10;
+update bill_detail set amount=amount+count1 where booking_id=v.booking_id;
+END LOOP;
+if(housenumber is null) then
+dbms_output.put_line('All houses paid the bill on Time');                                                               
+-- If all houses paid the bill, throw a message to user  
+end if;
+end;
+
+           Calling Program: 
+               exec bill_notifier;
+7.  Program to Transfer Lease
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to Transfer the Lease of the house.       
+--Processed Tables:Background_verification table.
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Program Name:lease_tranfer
+---------------------------------------------------------------------------------------------------------------------------------
+create or replace procedure lease_tranfer(housenumber in number,old_lease_number in number,old_first_name in 
+varchar2,old_last_name in varchar2,typeofcust in varchar2,newfirstname in varchar2,newlastname in varchar2,newmobileno in number,newemailid in varchar2,passport in varchar2,i20 in varchar2,driving_lisense in varchar2,State_id in varchar2)is
+v Background_verification%rowtype;
+begin
+select verification_id into v.verification_id from Background_verification where first_name=old_first_name and last_name=old_last_name and house_no=housenumber;                         
+ -- Get the Inputs from the user and update the table 
+v.first_name:=newfirstname;
+v.last_name:=newlastname;
+v.mobile_no:=newmobileno;
+v.email_id:=newemailid;
+v.house_no:=housenumber;
+if(typeofcust='international student')then                                                                                                                                                -- Check for Type of Customer
+if(passport='received' and i20='received' and driving_lisense= 'not required' and state_id='not required') then
+dbms_output.put_line('verification is done');
+v.status:='yes';
+v.verification_date:=sysdate;
+update Background_verification set first_name=v.first_name,last_name=v.last_name,mobile_no=v.mobile_no,email_id=v.email_id,verification_date=v.verification_date where verification_id=v.verification_id;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+if(typeofcust='us citizen')then
+if(passport='not required' and i20='not required' and driving_lisense= 'recieved' and state_id='received') then
+dbms_output.put_line('verification is done');
+v.status:='yes';
+v.verification_date:=sysdate;
+update Background_verification set first_name=v.first_name,last_name=v.last_name,mobile_no=v.mobile_no,email_id=v.email_id,verification_date=v.verification_date where verification_id=v.verification_id;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+exception                                                                                                                                                                                 -- Exception Handling for Wrong Inputs from User
+when no_data_found then
+dbms_output.put_line('Invalid Input details');
+end;
+Calling Program: 
+ exec lease_tranfer(4001,125,'ppp','qqq','international student','aaa','bbb',2406431780,'@umbc.edu','required','required','not required','not required');
+
+
+
+8. Program to add person to Lease 
+---------------------------------------------------------------------------------------------------------------------------------
+--This program is used to add customer to current Lease agreement.       
+--Processed Tables:Background_verification.
+--Authors: Saichaitanya,Rakshith,Saiadithya
+--Progam Name:lease_addition
+---------------------------------------------------------------------------------------------------------------------------------
+
+create or replace procedure lease_addition(housenumber in number,typeofcust in varchar2,firstname in varchar2,lastname in varchar2,mobileno in number,emailid in varchar2,passport in varchar2,i20 in varchar2,driving_lisense in varchar2,State_id in varchar2)is
+v Background_verification%rowtype;
+count1 number;
+limit number;
+begin
+select count(house_no) into count1 from Background_verification where house_no=housenumber;                                                                                        -- Process the inputs from user                                                                             
+select max_persons into limit from housing_details where house_no=housenumber;
+v.first_name:=firstname;
+v.last_name:=lastname;
+v.mobile_no:=mobileno;
+v.email_id:=emailid;
+v.house_no:=housenumber;
+if(count1<limit) then                                                                                                                                     
+if(typeofcust='international student')then                                                                                                              
+-- Process to create Lease for International student
+if(passport='received' and i20='received' and driving_lisense= 'not required' and state_id='not required') then
+dbms_output.put_line('verification is done');
+v.status:='yes';
+v.verification_id:=verify_seq.nextval;
+v.verification_date:=sysdate;
+insert into Background_verification values v;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+if(typeofcust='us citizen')then                                                                                                                        
+ -- Process to create Lease for U.S.A. Citizen
+if(passport='not required' and i20='not required' and driving_lisense= 'recieved' and state_id='received') then
+dbms_output.put_line('verification is done');
+v.status:='yes';
+v.verification_id:=verify_seq.nextval;
+v.verification_date:=sysdate;
+insert into Background_verification values v;
+else
+dbms_output.put_line('verification is not done');
+end if;
+end if;
+else
+dbms_output.put_line('max limit of lease reached,so not possible');                                                                                     -- Throw error message if maximum customer limit is reached 
+end if;
+exception                                                                                                                                               
+-- Exception Handling for Wrong Inputs from User
+when no_data_found then
+dbms_output.put_line('Invalid Input details');
+end;
+Calling Program: 
+ exec lease_addition(4001,'international student','aaa','bbb',2406431780,'pn@umbc.edu','recieved','recieved','not recieved','not recieved')
+
+
+
+Tables Queries
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create Admin Credentail Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:AdminCredential
+--------------------------------------------------------------------------------------------------------------------------------
+create table AdminCredential(Admin_id varchar(40),Admin_password varchar(40),primary key(Admin_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--Insert values for Admin Credentail Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--------------------------------------------------------------------------------------------------------------------------------
+insert into AdminCredential values('SaiChaithanya','qwerty123');
+insert into AdminCredential values('Saiadithya','qwerty456');
+insert into AdminCredential values('Rakshith','qwerty789');
+insert into AdminCredential values('Para','qwerty124');
+insert into AdminCredential values('Dhawan','qwerty125');
+------------------------------------------------------------------------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create Background_verification Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:Background_verification
+--------------------------------------------------------------------------------------------------------------------------------
+create table Background_verification(verification_id number,verification_date date,status varchar(10),first_name varchar(30),
+last_name varchar(30),mobile_no number,email_id varchar(40) ,house_no number,primary key(verification_id),foreign key(house_no) references housing_details(house_no));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create verify_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:verify_seq
+--------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE verify_seq
+ START WITH     1
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create lease Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:lease
+--------------------------------------------------------------------------------------------------------------------------------
+create table lease(lease_no number,house_no number,primary key(lease_no),foreign key(house_no) references house_booking(house_no));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create lease_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:lease_seq
+---------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE lease_seq
+ START WITH     1234
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create house_booking Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:house_booking
+--------------------------------------------------------------------------------------------------------------------------------
+create table house_booking(booking_id number,start_date date,end_date date,lease_no number,primary key(booking_id),foreign key(lease_no) references lease(lease_no));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create booking_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:lease_seq
+---------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE booking_seq
+ START WITH     123
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create housing_details Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:housing_details
+--------------------------------------------------------------------------------------------------------------------------------
+create table housing_details(house_no number,house_bay varchar(40),rent number,BHK number,house_status varchar(10),max_persons number,Amenities varchar(10),booking_id number,house_type varchar(40),primary key(house_no),foreign key(booking_id) references house_booking(booking_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--Insert values for housing_details Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--------------------------------------------------------------------------------------------------------------------------------
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4001,'aldgate',3500,3,'no',6,'sg','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4002,'aldgate',2500,2,'no',4,'sg','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4003,'aldgate',1000,1,'no',2,'sg','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4004,'eldon',3500,3,'no',6,'g','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4005,'eldon',2500,2,'no',4,'g','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4006,'eldon',1000,1,'no',2,'g','townhouse');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4007,'aldgate',3500,3,'no',6,'g','apartment');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4008,'aldgate',2500,2,'no',4,'g','apartment');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4009,'aldgate',1000,1,'no',2,'g','apartment');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4010,'eldon',3500,3,'no',6,'sg','apartment');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4011,'eldon',2500,2,'no',4,'sg','apartment');
+insert into housing_details(house_no,house_bay,rent,bhk,house_status,max_persons,amenities,house_type) values (4012,'eldon',1000,1,'no',2,'sg','apartment');
+
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create Amenity_status Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:Amenity_status
+--------------------------------------------------------------------------------------------------------------------------------
+create table Amenity_status(Amenity_id number,amenity_name varchar(20),amount number,booking_id number,primary key(Amenity_id),foreign key(booking_id) references house_booking(booking_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--Insert values for Amenity_status Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--------------------------------------------------------------------------------------------------------------------------------
+insert into Amenity_status(Amenity_id,amenity_name,amount) values(1,'gym',300);
+insert into Amenity_status(Amenity_id,amenity_name,amount) values(2,'swimming',400);
+insert into Amenity_status(Amenity_id,amenity_name,amount) values(3,'shuttle_services',100);
+insert into Amenity_status(Amenity_id,amenity_name,amount) values(4,'BGE',330);
+
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create customer_complaint Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:customer_complaint
+--------------------------------------------------------------------------------------------------------------------------------
+create table customer_complaint(complaint_id number,complaint_desc varchar(30),amenities_damage varchar(30),damage_date date,expected_date date,booking_id number,primary key(complaint_id),foreign key(booking_id) references house_booking(booking_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create complaint_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:complaint_seq
+---------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE complaint_seq
+ START WITH     1
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create BGE_activation Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:BGE_activation
+--------------------------------------------------------------------------------------------------------------------------------
+create table BGE_activation(BGE_ID number,BGE_activation_date date,booking_id number,primary key(BGE_ID),foreign key(booking_id)references house_booking(booking_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create bge_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:bge_seq
+---------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE bge_seq
+ START WITH     100
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create bill_detail Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:bill_detail
+--------------------------------------------------------------------------------------------------------------------------------
+create table bill_detail(bill_id 
+number,amount number,booking_id 
+number,start_date date,last_date_of_payment date,primary 
+key(bill_id),foreign key(booking_id) 
+references house_booking(booking_id));
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create bill_seq sequence
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:bill_seq
+---------------------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE bill_seq
+ START WITH     1
+ INCREMENT BY   1;
+------------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------
+--This program to create customer_details Table
+--Authors : Saichaitanya,Rakshith,Saiadithya
+--Progam Name:customer_details
+--------------------------------------------------------------------------------------------------------------------------------
+create table customer_details(personal_id number,booking_id number,lease_no number,house_no number,BGE_id number,primary key(personal_id),foreign key (booking_id) references house_booking(booking_id),foreign key(house_no) references housing_details(house_no),foreign key (lease_no) references lease(lease_no),foreign key (bge_id) references bge_activation(bge_id));
+
+CREATE SEQUENCE personal_seq
+ START WITH     11111
+ INCREMENT BY   1;
